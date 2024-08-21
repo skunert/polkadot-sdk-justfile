@@ -1,0 +1,107 @@
+time :=`date +"%Y-%m-%dT%H:%M:%S"`
+zombie_test_cumulus_dir := "cumulus/zombienet/tests"
+zombie_test_polkadot_dir := "polkadot/zombienet_tests"
+fixed_debug_dir := "~/work/zombienet/current_debug"
+
+alias i := install-polkadot-parachain
+alias it := install-test
+alias ip := install-polkadot
+alias tc := test-crate
+
+export RUST_BACKTRACE := "1"
+
+default:
+  @just --choose
+
+tick-505:
+	echo "Connecting parity vpn."
+	sudo nmcli connection import type wireguard file /etc/wireguard/wg0.conf;
+	docker run --rm -it --name polkadot-ui -e WS_URL=ws://versi-tick-505-rpc.parity-versi.parity.io/ -p 8080:80 jacogr/polkadot-js-apps:latest
+	echo "Disconnecting parity vpn."
+	sudo nmcli connection delete wg0;
+install-builder:
+	cargo install --path ./substrate/bin/utils/chain-spec-builder --locked
+bench:
+	perftest cargo criterion --bench block_production --plotting-backend plotters;
+	perftest cargo criterion --bench block_import --plotting-backend plotters;
+	perftest cargo criterion --bench block_import_glutton --plotting-backend plotters;
+	perftest cargo criterion --bench block_production_glutton --plotting-backend plotters;
+clean-debug:
+	mkdir -p {{fixed_debug_dir}};
+	rm -rf {{fixed_debug_dir}}/*;
+install-polkadot-parachain features="":
+	cargo install --path ./cumulus/polkadot-parachain --locked {{ if features != "" { "--features " + features } else { "" } }};
+install-polkadot features="":
+    cargo install --path ./polkadot --locked {{ if features != "" { "--features " + features } else { "" } }};
+install-debug BINARY_NAME="polkadot-parachain":
+	cargo build -p polkadot-parachain-bin --bin {{BINARY_NAME}}
+	cp ./target/debug/{{BINARY_NAME}} ~/.local/bin/{{BINARY_NAME}}-debug
+install-test:
+	cargo install --path ./cumulus/test/service/ --locked;
+install-test-debug:
+	cargo build --bin test-parachain
+	cp target/debug/test-parachain ~/.local/bin/test-parachain-debug
+zombie-substrate: clean-debug
+	zombienet -l text --dir {{fixed_debug_dir}} -f --provider native spawn substrate/zombienet/0000-block-building/block-building.toml
+zombie-test NAME: clean-debug
+	zombienet -l text --dir {{fixed_debug_dir}} -f --provider native test {{zombie_test_cumulus_dir}}/{{NAME}}.zndsl
+zombie-spawn NAME: clean-debug
+	zombienet -l text --dir {{fixed_debug_dir}} -f --provider native spawn {{zombie_test_cumulus_dir}}/{{NAME}}.toml
+polka-zombie: clean-debug
+	zombienet -l text --dir {{fixed_debug_dir}} -f --provider native test ./polkadot/zombienet_tests/elastic_scaling/0001-basic-3cores-6s-blocks.zndsl
+zombie-basic:
+	just zombie-test "0003-full_node_catching_up";
+zombie-basic-spawn:
+	just zombie-spawn "0003-full_node_catching_up";
+zombie-coretime:
+	just zombie-test "0008-elastic_authoring";
+zombie-test-pov:
+	just zombie-test "0002-pov_recovery";
+zombie-test-rpc:
+	just zombie-test "0006-rpc_collator_builds_blocks";
+small-network:
+	zombienet -l text --dir ~/work/zombienet/$(date +"%Y-%m-%dT%H:%M:%S") -f --provider native spawn ./cumulus/zombienet/examples/small_network.toml
+small-network-test:
+	zombienet -l text --dir ~/work/zombienet/coretime-test -f --provider native spawn ./cumulus/zombienet/examples/small_network.toml
+fixed: clean-debug
+	zombienet -l text --dir {{fixed_debug_dir}} -f --provider native spawn ./cumulus/zombienet/examples/small_network.toml;
+fixed-folder-testnet: clean-debug
+	cargo clean -p cumulus-pallet-parachain-system;
+	zombienet -l text --dir {{fixed_debug_dir}} -f --provider native spawn ./cumulus/zombienet/examples/small_network.toml;
+start-lc:
+	#!/usr/bin/zsh
+	just install polkadot-parachain-lc;
+	polkadot-parachain-lc --relay-chain-light-client -lrpc-light-client-worker=trace --chain {{fixed_debug_dir}}/charlie/cfg/statemine-local_rococo-local-2000.json --tmp -- --chain {{fixed_debug_dir}}/charlie/cfg/rococo-local.json &> {{fixed_debug_dir}}/lc.log
+start-lc-collator:
+	#!/usr/bin/zsh
+	polkadot-parachain-lc-debug --collator --force-authoring -lrpc-light-client-worker=trace --relay-chain-light-client --chain {{fixed_debug_dir}}/charlie/cfg/statemine-local_rococo-local-2000.json --tmp -- --chain {{fixed_debug_dir}}/charlie/cfg/rococo-local.json &> {{fixed_debug_dir}}/lc-collator.log
+re: install-polkadot-parachain fixed-folder-testnet
+try-runtime:
+	cargo build --release -p asset-hub-rococo-runtime --features=try-runtime;
+	try-runtime --disable-spec-name-check --runtime ./target/release/wbuild/asset-hub-rococo-runtime/asset_hub_rococo_runtime.wasm on-runtime-upgrade --disable-spec-version-check --checks=all live --uri "wss://rococo-asset-hub-rpc.polkadot.io:443";
+sync-node:
+	polkadot-parachain --chain asset-hub-kusama --tmp --sync warp --relay-chain-rpc-urls wss://kusama-rpc.polkadot.io -- --chain kusama --tmp;
+visit-logs:
+	lnav {{fixed_debug_dir}}/*.log
+taplo:
+	taplo format --config .config/taplo.toml
+clippy $SKIP_WASM_BUILD="1":
+	cargo clippy --all-targets --locked --workspace
+	cargo clippy --locked --workspace
+zepter:
+	zepter run --config .config/zepter.yaml
+fmt:
+	cargo +nightly fmt -- --check
+ci: taplo zepter fmt clippy
+ui-tests:
+	RUN_UI_TESTS=1 cargo nextest run --locked -p frame-support-test --features=frame-feature-testing,no-metadata-docs,try-runtime,experimental
+generate-snapshot: clean-debug
+	zombienet -l text --dir ~/work/current_zombienet -f --provider native spawn {{zombie_test_cumulus_dir}}/0001-sync_blocks_from_tip_without_connected_collator.toml;
+do $SKIP_WASM_BUILD="1":
+	RUSTDOCFLAGS="--html-in-header $(pwd)/docs/sdk/assets/header.html --extend-css $(pwd)/docs/sdk/assets/theme.css --default-theme=ayu" cargo doc -p polkadot-sdk-docs --open
+d $SKIP_WASM_BUILD="1":
+	RUSTDOCFLAGS="--html-in-header $(pwd)/docs/sdk/assets/header.html --extend-css $(pwd)/docs/sdk/assets/theme.css --default-theme=ayu" cargo doc -p polkadot-sdk-docs
+test-crate CRATE_FILTER="" TEST_NAME="" $SKIP_WASM_BUILD="1" :
+	cargo nextest run -p $(cargo ws list | fzf -f {{CRATE_FILTER}}) --nocapture --retries 0 {{TEST_NAME}}
+check-crate:
+	cargo check -p `cargo ws list | fzf`
