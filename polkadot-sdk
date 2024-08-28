@@ -1,4 +1,3 @@
-
 time :=`date +"%Y-%m-%dT%H:%M:%S"`
 zombie_test_cumulus_dir := "cumulus/zombienet/tests"
 zombie_test_polkadot_dir := "polkadot/zombienet_tests"
@@ -45,9 +44,9 @@ install-test:
 install-substrate:
 	cargo install --path ./substrate/bin/node/cli --locked --profile testnet;
 zombie-spawn-interactive NAME="": clean-debug
-    zombienet -l text --dir {{fixed_debug_dir}} -f --provider native spawn `fd -e toml --exclude "Cargo.toml" | fzf -q "{{NAME}}"`
-zombie-interactive: clean-debug
-    zombienet -l text --dir {{fixed_debug_dir}} -f --provider native test `fd -e zndsl | fzf`
+    zombienet -l text --dir {{fixed_debug_dir}} -f --provider native spawn `fd -e toml --exclude "Cargo.toml" | fzf -q "{{NAME}}" -1`
+zombie-interactive NAME="": clean-debug
+    zombienet -l text --dir {{fixed_debug_dir}} -f --provider native test `fd -e zndsl | fzf -q "{{NAME}}" -1`
 zombie-test NAME: clean-debug
 	zombienet -l text --dir {{fixed_debug_dir}} -f --provider native test {{zombie_test_cumulus_dir}}/{{NAME}}.zndsl
 zombie-spawn NAME: clean-debug
@@ -80,7 +79,7 @@ start-lc:
 	just install polkadot-parachain-lc;
 	polkadot-parachain-lc --relay-chain-light-client -lrpc-light-client-worker=trace --chain {{fixed_debug_dir}}/charlie/cfg/statemine-local_rococo-local-2000.json --tmp -- --chain {{fixed_debug_dir}}/charlie/cfg/rococo-local.json &> {{fixed_debug_dir}}/lc.log
 start-lc-collator:
-	#!/usr/bin/zsh
+	#!/usr/bin/zshzc
 	polkadot-parachain-lc-debug --collator --force-authoring -lrpc-light-client-worker=trace --relay-chain-light-client --chain {{fixed_debug_dir}}/charlie/cfg/statemine-local_rococo-local-2000.json --tmp -- --chain {{fixed_debug_dir}}/charlie/cfg/rococo-local.json &> {{fixed_debug_dir}}/lc-collator.log
 re: install-polkadot-parachain fixed-folder-testnet
 sync-node:
@@ -106,16 +105,18 @@ generate-docs-open $SKIP_WASM_BUILD="1" $RUSTDOCFLAGS="--html-in-header $(pwd)/d
 generate-docs $SKIP_WASM_BUILD="1" $RUSTDOCFLAGS="--html-in-header $(pwd)/docs/sdk/assets/header.html --extend-css $(pwd)/docs/sdk/assets/theme.css --default-theme=ayu":
 	cargo doc -p polkadot-sdk-docs
 test-crate NAME="" CRATE="" $SKIP_WASM_BUILD="1" :
-    cargo nextest run -p `cargo ws list | fzf -q "{{CRATE}}"` --nocapture --retries 0 {{NAME}}
+    cargo nextest run -p `cargo ws list | fzf -q "{{CRATE}}" -1` --nocapture --retries 0 {{NAME}}
 build-crate NAME="":
-    cargo build --release -p `cargo ws list | fzf -q "{{NAME}}"`
+    cargo build --release -p `cargo ws list | fzf -q "{{NAME}}" -1`
 build-crate-bench NAME="":
-    cargo build --release -p `cargo ws list | fzf -q "{{NAME}}"` --features runtime-benchmarks
+    cargo build --release -p `cargo ws list | fzf -q "{{NAME}}" -1` --features runtime-benchmarks
 check-crate NAME="":
-    cargo clippy -p `cargo ws list | fzf -q {{NAME}}`
+    cargo clippy -p `cargo ws list | fzf -q "{{NAME}}"`
 clippy-crate NAME="":
-    cargo clippy -p `cargo ws list | fzf -q {{NAME}}`
+    cargo clippy -p `cargo ws list | fzf -q "{{NAME}}"`
 run-benchmark-omni $RUST_LOG="info":
-	frame-omni-bencher v1 benchmark pallet --disable-proof-recording --runtime=`fd -I -e compressed.wasm "" target | fzf` --wasm-execution=compiled --pallet=frame_system --no-storage-info --no-median-slopes --no-min-squares --extrinsic=* --steps=50 --repeat=20 --json --output=./cumulus/parachains/runtimes/assets/asset-hub-rococo/src/weights/
+	frame-omni-bencher v1 benchmark pallet --runtime=`fd -I -e compressed.wasm "" target | fzf` --wasm-execution=compiled --pallet=cumulus_pallet_parachain_system --no-storage-info --no-median-slopes --no-min-squares --extrinsic=set_claim_queue_offset --steps=50 --repeat=20 --json --output=./cumulus/parachains/runtimes/assets/asset-hub-rococo/src/weights/
 run-benchmark $RUST_LOG="info":
-	polkadot benchmark pallet --disable-proof-recording --genesis-builder=runtime --runtime=`fd -I -e compressed.wasm "" target | fzf` --wasm-execution=compiled --pallet=frame_system --no-storage-info --no-median-slopes --no-min-squares --extrinsic=* --steps=50 --repeat=20 --json --output=./cumulus/parachains/runtimes/assets/asset-hub-rococo/src/weights/
+	polkadot benchmark pallet --disable-proof-recording --genesis-builder=runtime --runtime=`fd -I -e compressed.wasm "" target | fzf` --wasm-execution=compiled --pallet=frame_system --no-storage-info --no-median-slopes --no-min-squares --extrinsic=cumulus_pallet_parachain_system::set_claim_queue_offset --steps=50 --repeat=20 --json --output=./cumulus/parachains/runtimes/assets/asset-hub-rococo/src/weights/
+overhead $RUST_LOG="info":
+    polkadot benchmark overhead 
