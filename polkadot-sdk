@@ -25,14 +25,11 @@ tick-505:
 install-chain-spec-builder:
 	cargo install --path ./substrate/bin/utils/chain-spec-builder --locked
 bench:
-	perftest cargo criterion --bench block_production --plotting-backend plotters;
-	perftest cargo criterion --bench block_import --plotting-backend plotters;
-	perftest cargo criterion --bench block_import_glutton --plotting-backend plotters;
-	perftest cargo criterion --bench block_production_glutton --plotting-backend plotters;
+	cargo criterion --bench block_production --plotting-backend plotters;
 clean-debug:
 	mkdir -p {{fixed_debug_dir}};
 	rm -rf {{fixed_debug_dir}}/*;
-install-polkadot-parachain features="":
+install-polkadot-parachain features="runtime-benchmarks":
 	cargo install --path ./cumulus/polkadot-parachain --locked --profile testnet {{ if features != "" { "--features " + features } else { "" } }};
 install-polkadot features="":
     cargo install --path ./polkadot --locked  --profile testnet {{ if features != "" { "--features " + features } else { "" } }};
@@ -118,5 +115,10 @@ run-benchmark-omni $RUST_LOG="info":
 	frame-omni-bencher v1 benchmark pallet --runtime=`fd -I -e compressed.wasm "" target | fzf` --wasm-execution=compiled --pallet=cumulus_pallet_parachain_system --no-storage-info --no-median-slopes --no-min-squares --extrinsic=set_claim_queue_offset --steps=50 --repeat=20 --json --output=./cumulus/parachains/runtimes/assets/asset-hub-rococo/src/weights/
 run-benchmark $RUST_LOG="info":
 	polkadot benchmark pallet --disable-proof-recording --genesis-builder=runtime --runtime=`fd -I -e compressed.wasm "" target | fzf` --wasm-execution=compiled --pallet=frame_system --no-storage-info --no-median-slopes --no-min-squares --extrinsic=cumulus_pallet_parachain_system::set_claim_queue_offset --steps=50 --repeat=20 --json --output=./cumulus/parachains/runtimes/assets/asset-hub-rococo/src/weights/
+run-benchmark-overhead $RUST_LOG="info":
+	polkadot-parachain benchmark overhead --enable-proof-size --para-id 1000;
+run-benchmark-overhead-interactive $RUST_LOG="info":
+	polkadot-parachain benchmark overhead --chain `fd -I -e json | fzf` --para-id 1000;
 overhead $RUST_LOG="info":
-    polkadot benchmark overhead 
+    just i runtime-benchmarks;
+    polkadot-parachain benchmark overhead --enable-proof-size --para-id 1000;
