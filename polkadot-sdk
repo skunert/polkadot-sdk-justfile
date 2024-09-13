@@ -1,124 +1,114 @@
 time :=`date +"%Y-%m-%dT%H:%M:%S"`
-zombie_test_cumulus_dir := "cumulus/zombienet/tests"
-zombie_test_polkadot_dir := "polkadot/zombienet_tests"
 fixed_debug_dir := "~/work/zombienet/current_debug"
-
-alias i := install-polkadot-parachain
-alias it := install-test
-alias is := install-substrate
-alias ip := install-polkadot
-alias d := generate-docs
-alias do := generate-docs-open
+default_install_profile := "testnet"
 
 export RUST_BACKTRACE := "1"
 
 default:
   @just --choose
 
-txpool: install-substrate zombie-spawn-interactive
-tick-505:
-	echo "Connecting parity vpn."
-	sudo nmcli connection import type wireguard file /etc/wireguard/wg0.conf;
-	docker run --rm -it --name polkadot-ui -e WS_URL=ws://versi-tick-505-rpc.parity-versi.parity.io/ -p 8080:80 jacogr/polkadot-js-apps:latest
-	echo "Disconnecting parity vpn."
-	sudo nmcli connection delete wg0;
-install-chain-spec-builder:
-	cargo install --path ./substrate/bin/utils/chain-spec-builder --locked
-bench:
-	cargo criterion --bench block_production --plotting-backend plotters;
+alias i := install-polkadot-parachain
+alias it := install-test-parachain
+alias is := install-substrate
+alias ip := install-polkadot
+alias d := generate-docs
+alias do := generate-docs-open
+alias zsi := zombie-spawn-interactive
+alias zti := zombie-test-interactive
+
+[private]
 clean-debug:
 	mkdir -p {{fixed_debug_dir}};
 	rm -rf {{fixed_debug_dir}}/*;
-install-polkadot-parachain features="runtime-benchmarks":
-	cargo install --path ./cumulus/polkadot-parachain --locked --profile testnet {{ if features != "" { "--features " + features } else { "" } }};
-install-polkadot features="":
-    cargo install --path ./polkadot --locked  --profile testnet {{ if features != "" { "--features " + features } else { "" } }};
-install-debug BINARY_NAME="polkadot-parachain":
-	cargo build -p polkadot-parachain-bin --bin {{BINARY_NAME}}
-	cp ./target/debug/{{BINARY_NAME}} ~/.local/bin/{{BINARY_NAME}}-debug
-install-test:
-	cargo install --path ./cumulus/test/service/ --locked --profile testnet;
-install-substrate:
-	cargo install --path ./substrate/bin/node/cli --locked --profile testnet;
+
+[group("install")]
+install PATH FEATURES="":
+	cargo install --path {{PATH}} --locked --profile {{default_install_profile}} {{ if FEATURES != "" { "--features " + FEATURES } else { "" } }}
+[group("install")]
+install-chain-spec-builder: (install "./substrate/bin/utils/chain-spec-builder")
+[group("install")]
+install-polkadot-parachain FEATURES="runtime-benchmarks": (install "./cumulus/polkadot-parachain" FEATURES)
+[group("install")]
+install-polkadot FEATURES="runtime-benchmarks": (install "./polkadot" FEATURES)
+[group("install")]
+install-test-parachain FEATURES="": (install "./cumulus/test/service/" FEATURES)
+[group("install")]
+install-substrate FEATURES="": (install "./substrate/bin/node/cli" FEATURES)
+
+
+[group("zombienet")]
 zombie-spawn-interactive NAME="": clean-debug
     zombienet -l text --dir {{fixed_debug_dir}} -f --provider native spawn `fd -e toml --exclude "Cargo.toml" | fzf -q "{{NAME}}" -1`
-zombie-interactive NAME="": clean-debug
+[group("zombienet")]
+zombie-test-interactive NAME="": clean-debug
     zombienet -l text --dir {{fixed_debug_dir}} -f --provider native test `fd -e zndsl | fzf -q "{{NAME}}" -1`
-zombie-test NAME: clean-debug
-	zombienet -l text --dir {{fixed_debug_dir}} -f --provider native test {{zombie_test_cumulus_dir}}/{{NAME}}.zndsl
-zombie-spawn NAME: clean-debug
-	zombienet -l text --dir {{fixed_debug_dir}} -f --provider native spawn {{zombie_test_cumulus_dir}}/{{NAME}}.toml
-polka-zombie: clean-debug
-	zombienet -l text --dir {{fixed_debug_dir}} -f --provider native test ./polkadot/zombienet_tests/elastic_scaling/0001-basic-3cores-6s-blocks.zndsl
-sub-warp $DB_BLOCK_HEIGHT="50" $DB_SNAPSHOT="https://storage.googleapis.com/zombienet-db-snaps/substrate/0001-basic-warp-sync/chains-9677807d738b951e9f6c82e5fd15518eb0ae0419.tgz": clean-debug
-	cd ./substrate/zombienet/0003-block-building-warp-sync && zombienet -l text --dir {{fixed_debug_dir}} -f --provider native test test-block-building-warp-sync.zndsl
-zombie-basic:
-	just zombie-test "0003-full_node_catching_up";
-zombie-coretime:
-	just zombie-test "0008-elastic_authoring";
-zombie-elastic-recovery:
-	just zombie-test "0009-elastic_pov_recovery";
-zombie-test-pov:
-	just zombie-test "0002-pov_recovery";
-zombie-test-rpc:
-	just zombie-test "0006-rpc_collator_builds_blocks";
-small-network:
-	zombienet -l text --dir ~/work/zombienet/$(date +"%Y-%m-%dT%H:%M:%S") -f --provider native spawn ./cumulus/zombienet/examples/small_network.toml
-small-network-test:
-	zombienet -l text --dir ~/work/zombienet/coretime-test -f --provider native spawn ./cumulus/zombienet/examples/small_network.toml
-fixed: clean-debug
-	zombienet -l text --dir {{fixed_debug_dir}} -f --provider native spawn ./cumulus/zombienet/examples/small_network.toml;
-fixed-folder-testnet: clean-debug
-	cargo clean -p cumulus-pallet-parachain-system;
-	zombienet -l text --dir {{fixed_debug_dir}} -f --provider native spawn ./cumulus/zombienet/examples/small_network.toml;
-start-lc:
-	#!/usr/bin/zsh
-	just install polkadot-parachain-lc;
-	polkadot-parachain-lc --relay-chain-light-client -lrpc-light-client-worker=trace --chain {{fixed_debug_dir}}/charlie/cfg/statemine-local_rococo-local-2000.json --tmp -- --chain {{fixed_debug_dir}}/charlie/cfg/rococo-local.json &> {{fixed_debug_dir}}/lc.log
-start-lc-collator:
-	#!/usr/bin/zshzc
-	polkadot-parachain-lc-debug --collator --force-authoring -lrpc-light-client-worker=trace --relay-chain-light-client --chain {{fixed_debug_dir}}/charlie/cfg/statemine-local_rococo-local-2000.json --tmp -- --chain {{fixed_debug_dir}}/charlie/cfg/rococo-local.json &> {{fixed_debug_dir}}/lc-collator.log
-re: install-polkadot-parachain fixed-folder-testnet
-sync-node:
-	polkadot-parachain --chain asset-hub-kusama --tmp --sync warp --relay-chain-rpc-urls wss://kusama-rpc.polkadot.io -- --chain kusama --tmp;
+
+[group("zombienet")]
+zombie-small-network:
+	zombienet -l text --dir {{fixed_debug_dir}} -f --provider native spawn ./cumulus/zombienet/examples/small_network.toml
+
+[group("utility")]
 visit-logs:
 	lnav {{fixed_debug_dir}}/*.log
+[group("utility")]
+start-asset-hub-kusama-node:
+	polkadot-parachain --chain asset-hub-kusama --tmp --sync warp --relay-chain-rpc-urls wss://kusama-rpc.polkadot.io -- --chain kusama --tmp;
+[group("utility")]
 taplo:
 	taplo format --config .config/taplo.toml
+[group("utility")]
 clippy $SKIP_WASM_BUILD="1":
 	cargo clippy --all-targets --locked --workspace
 	cargo clippy --locked --workspace
+[group("utility")]
 zepter:
 	zepter run --config .config/zepter.yaml
-fmt:
+[group("utility")]
+fmt-check:
 	cargo +nightly fmt -- --check
+[group("utility")]
+fmt:
+	cargo +nightly fmt
+[group("utility")]
 ci: taplo zepter fmt clippy
+[group("utility")]
 ui-tests:
 	RUN_UI_TESTS=1 cargo nextest run --locked -p frame-support-test --features=frame-feature-testing,no-metadata-docs,try-runtime,experimental
-generate-snapshot: clean-debug
-	zombienet -l text --dir ~/work/current_zombienet -f --provider native spawn {{zombie_test_cumulus_dir}}/0001-sync_blocks_from_tip_without_connected_collator.toml;
+
+[group("docs")]
 generate-docs-open $SKIP_WASM_BUILD="1" $RUSTDOCFLAGS="--html-in-header $(pwd)/docs/sdk/assets/header.html --extend-css $(pwd)/docs/sdk/assets/theme.css --default-theme=ayu":
 	cargo doc -p polkadot-sdk-docs --open
+[group("docs")]
 generate-docs $SKIP_WASM_BUILD="1" $RUSTDOCFLAGS="--html-in-header $(pwd)/docs/sdk/assets/header.html --extend-css $(pwd)/docs/sdk/assets/theme.css --default-theme=ayu":
 	cargo doc -p polkadot-sdk-docs
+
+[group("test")]
 test-crate NAME="" CRATE="" $SKIP_WASM_BUILD="1" :
     cargo nextest run -p `cargo ws list | fzf -q "{{CRATE}}" -1` --nocapture --retries 0 {{NAME}}
-build-crate NAME="":
-    cargo build --release -p `cargo ws list | fzf -q "{{NAME}}" -1`
-build-crate-bench NAME="":
-    cargo build --release -p `cargo ws list | fzf -q "{{NAME}}" -1` --features runtime-benchmarks
-check-crate NAME="":
-    cargo clippy -p `cargo ws list | fzf -q "{{NAME}}"`
+[group("test")]
+test-crate-wasm NAME="" CRATE="": (test-crate NAME CRATE "0")
+
+[group("build")]
+build-crate NAME="" FEATURES="":
+    cargo build --release -p `cargo ws list | fzf -q "{{NAME}}" -1` {{ if FEATURES != "" { "--features " + FEATURES } else { "" } }}
+[group("build")]
+build-crate-bench NAME="": (build-crate NAME "runtime-benchmarks")
+
+[group("build")]
 clippy-crate NAME="":
-    cargo clippy -p `cargo ws list | fzf -q "{{NAME}}"`
+    cargo clippy -p `cargo ws list | fzf -q "{{NAME}}" -1`
+
+[group("benchmark")]
 run-benchmark-omni $RUST_LOG="info":
-	frame-omni-bencher v1 benchmark pallet --runtime=`fd -I -e compressed.wasm "" target | fzf` --wasm-execution=compiled --pallet=cumulus_pallet_parachain_system --no-storage-info --no-median-slopes --no-min-squares --extrinsic=set_claim_queue_offset --steps=50 --repeat=20 --json --output=./cumulus/parachains/runtimes/assets/asset-hub-rococo/src/weights/
+	frame-omni-bencher v1 benchmark pallet --runtime=`fd -I -e compressed.wasm "" target | fzf` --wasm-execution=compiled --pallet=cumulus_pallet_parachain_system --no-storage-info --no-median-slopes --no-min-squares --extrinsic=set_claim_queue_offset --steps=50 --repeat=20 --json
+[group("benchmark")]
+run-benchmark-overhead-interactive $RUST_LOG="info":
+	polkadot-parachain benchmark overhead --chain `fd -I -e json | fzf` --para-id 1000;
+
 run-benchmark $RUST_LOG="info":
 	polkadot benchmark pallet --disable-proof-recording --genesis-builder=runtime --runtime=`fd -I -e compressed.wasm "" target | fzf` --wasm-execution=compiled --pallet=frame_system --no-storage-info --no-median-slopes --no-min-squares --extrinsic=cumulus_pallet_parachain_system::set_claim_queue_offset --steps=50 --repeat=20 --json --output=./cumulus/parachains/runtimes/assets/asset-hub-rococo/src/weights/
 run-benchmark-overhead $RUST_LOG="info":
 	polkadot-parachain benchmark overhead --enable-proof-size --para-id 1000;
-run-benchmark-overhead-interactive $RUST_LOG="info":
-	polkadot-parachain benchmark overhead --chain `fd -I -e json | fzf` --para-id 1000;
 overhead $RUST_LOG="info":
     just i runtime-benchmarks;
     polkadot-parachain benchmark overhead --enable-proof-size --para-id 1000;
